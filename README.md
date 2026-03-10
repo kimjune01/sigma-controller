@@ -39,6 +39,34 @@ When a competitor enters adjacent territory (effective conversion curve narrows 
 
 `estimate_sigma_from_curve` bootstraps a reasonable sigma from a single histogram before the PID loop takes over. From a bad initial guess of 5.0, it estimates 2.19 against a true σ of 1.5 — close enough for the PID to converge quickly.
 
+### Noise robustness
+
+Real histograms have sampling noise. The controller converges under noise levels from 0% to 15%:
+
+![Sigma convergence under noise](noise_robustness.png)
+
+### Bin suppression
+
+When bins have fewer than 11 impressions (CMS cell suppression threshold), they're automatically dropped. The controller still converges with reduced data:
+
+![Sigma with bin suppression](bin_suppression.png)
+
+### Robustness across seeds
+
+Same scenario (true σ=1.5, target=10%) run across 20 random seeds. Mean final σ: 3.41 (equilibrium: 3.22):
+
+![Robustness across seeds](robustness.png)
+
+## Privacy and security
+
+This code is designed for exchanges handling HIPAA/FTC-regulated publisher data.
+
+- **Aggregated data only.** Inputs are distance histograms (bin counts), never individual embeddings or user data.
+- **Minimum bin size enforcement.** `validate_histogram` suppresses bins with fewer than 11 impressions (CMS cell suppression threshold). Bins below this are dropped before any computation.
+- **Thread-safe.** All shared state is protected by locks for concurrent request handling.
+- **Anti-windup.** The PID integral is clamped to `integral_max` to prevent runaway corrections from adversarial histogram spikes.
+- **No network, no disk, no logging.** Pure computation. Nothing leaves the process.
+
 ## Usage
 
 ```python
@@ -47,6 +75,7 @@ from pid import SigmaController, DistanceBin
 controller = SigmaController(target_rate=0.05)  # 5% conversion rate at boundary
 
 # Each update cycle, feed in the latest distance histogram
+# Bins below min_bin_size (default 11) are automatically suppressed
 histogram = [
     DistanceBin(distance=0.5, impressions=100, conversions=80),
     DistanceBin(distance=1.0, impressions=100, conversions=30),

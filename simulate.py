@@ -188,6 +188,157 @@ def print_summary(results: list[dict]):
               f"{r['equilibrium_sigma']:>8.2f} {r['final_sigma']:>8.2f} {error:>8.3f}")
 
 
+def simulate_noisy_histograms(true_sigma: float = 1.5, target_rate: float = 0.10,
+                               n_steps: int = 300, seed: int = 42) -> dict:
+    """
+    Compare convergence under different noise levels.
+    Real histograms have sampling noise; this shows the controller is robust to it.
+    """
+    noise_levels = [0.0, 0.05, 0.10, 0.15]
+    all_results = []
+
+    for noise in noise_levels:
+        r = simulate_convergence(true_sigma=true_sigma, target_rate=target_rate,
+                                 initial_sigma=3.0, n_steps=n_steps, seed=seed, noise=noise)
+        r["noise"] = noise
+        all_results.append(r)
+
+    return all_results
+
+
+def simulate_sparse_histograms(true_sigma: float = 1.5, target_rate: float = 0.10,
+                                n_steps: int = 300, seed: int = 42) -> dict:
+    """
+    Simulate with small bin counts that trigger bin suppression (< 11 impressions).
+    Shows the controller still works with reduced data after suppression.
+    """
+    random.seed(seed)
+
+    from pid import SigmaController, validate_histogram
+    ctrl = SigmaController(target_rate=target_rate, sigma=3.0, kp=0.3, ki=0.02, kd=0.08)
+
+    sigma_history = [ctrl.sigma]
+    bins_before = []
+    bins_after = []
+
+    with patch("pid.time") as mock_time:
+        t = 0.0
+        ctrl._prev_time = t
+
+        for i in range(n_steps):
+            t += 1.0
+            mock_time.monotonic.return_value = t
+
+            # Mix of well-populated and sparse bins
+            histogram = make_histogram(sigma_true=true_sigma, n_bins=40,
+                                       impressions_per_bin=random.choice([5, 8, 15, 50, 200]),
+                                       noise=0.02)
+            safe = validate_histogram(histogram)
+            bins_before.append(len(histogram))
+            bins_after.append(len(safe))
+
+            ctrl.update(histogram)  # controller calls validate internally
+            sigma_history.append(ctrl.sigma)
+
+    return {
+        "sigma_history": sigma_history,
+        "bins_before": bins_before,
+        "bins_after": bins_after,
+        "avg_suppressed": sum(b - a for b, a in zip(bins_before, bins_after)) / len(bins_before),
+    }
+
+
+def simulate_multiple_seeds(true_sigma: float = 1.5, target_rate: float = 0.10,
+                            n_seeds: int = 20, n_steps: int = 300) -> dict:
+    """Run the same scenario across multiple random seeds to show consistency."""
+    all_sigma = []
+    final_sigmas = []
+
+    for seed in range(n_seeds):
+        r = simulate_convergence(true_sigma=true_sigma, target_rate=target_rate,
+                                 initial_sigma=3.0, n_steps=n_steps, seed=seed, noise=0.03)
+        all_sigma.append(r["sigma_history"])
+        final_sigmas.append(r["final_sigma"])
+
+    return {
+        "target_rate": target_rate,
+        "equilibrium": r["equilibrium_sigma"],
+        "all_sigma": all_sigma,
+        "final_sigmas": final_sigmas,
+        "mean_final": sum(final_sigmas) / len(final_sigmas),
+        "n_seeds": n_seeds,
+    }
+
+
+def plot_noise(results: list[dict], filename: str = "noise_robustness.png"):
+    fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+
+    for r in results:
+        label = f"noise={r['noise']:.2f}"
+        ax.plot(r["sigma_history"], label=label, alpha=0.7)
+
+    ax.axhline(y=results[0]["equilibrium_sigma"], color="gray", linestyle=":", alpha=0.5, label="Equilibrium")
+    ax.set_ylabel("σ")
+    ax.set_xlabel("Update Steps")
+    ax.set_title("Sigma Convergence Under Histogram Noise")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(filename, dpi=150)
+    plt.close()
+    print(f"Saved {filename}")
+
+
+def plot_suppression(result: dict, filename: str = "bin_suppression.png"):
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+
+    axes[0].plot(result["sigma_history"], color="steelblue", alpha=0.8)
+    axes[0].set_ylabel("σ")
+    axes[0].set_title(f"Sigma With Bin Suppression (avg {result['avg_suppressed']:.1f} bins suppressed/step)")
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].plot(result["bins_before"], alpha=0.5, color="gray", label="Bins before suppression")
+    axes[1].plot(result["bins_after"], alpha=0.8, color="steelblue", label="Bins after suppression")
+    axes[1].set_ylabel("Bin Count")
+    axes[1].set_xlabel("Update Steps")
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(filename, dpi=150)
+    plt.close()
+    print(f"Saved {filename}")
+
+
+def plot_robustness(result: dict, filename: str = "robustness.png"):
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8))
+
+    for sigma_hist in result["all_sigma"]:
+        axes[0].plot(sigma_hist, alpha=0.2, color="steelblue")
+    axes[0].axhline(y=result["equilibrium"], color="red", linestyle="--", alpha=0.5, label="Equilibrium")
+    axes[0].set_ylabel("σ")
+    axes[0].set_xlabel("Update Steps")
+    axes[0].set_title(f"Sigma Across {result['n_seeds']} Random Seeds (target={result['target_rate']:.0%})")
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].hist(result["final_sigmas"], bins=12, color="steelblue", edgecolor="white", alpha=0.8)
+    axes[1].axvline(x=result["equilibrium"], color="red", linestyle="--", label="Equilibrium")
+    axes[1].axvline(x=result["mean_final"], color="orange", linestyle="--",
+                    label=f"Mean={result['mean_final']:.2f}")
+    axes[1].set_xlabel("Final σ")
+    axes[1].set_ylabel("Count")
+    axes[1].set_title("Distribution of Final Sigma Across Seeds")
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(filename, dpi=150)
+    plt.close()
+    print(f"Saved {filename}")
+
+
 if __name__ == "__main__":
     # Test convergence from different starting points
     scenarios = [
@@ -209,5 +360,19 @@ if __name__ == "__main__":
     # Test competitor entry
     shock = simulate_competitor_entry()
     plot_shock(shock)
+
+    # Test noise robustness
+    noise_results = simulate_noisy_histograms()
+    plot_noise(noise_results)
+
+    # Test bin suppression
+    sparse = simulate_sparse_histograms()
+    plot_suppression(sparse)
+
+    # Test across multiple seeds
+    robustness = simulate_multiple_seeds()
+    plot_robustness(robustness)
+    print(f"\nRobustness: mean final σ = {robustness['mean_final']:.3f} "
+          f"(equilibrium = {robustness['equilibrium']:.3f}) across {robustness['n_seeds']} seeds")
 
     print("\nDone.")
