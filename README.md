@@ -85,6 +85,14 @@ histogram = [
 new_sigma = controller.update(histogram)
 ```
 
+## Interactive demo
+
+Open `demo.ipynb` to try it yourself. Change the true sigma, target rate, and starting guess, then re-run to see convergence, bin suppression, and competitor entry.
+
+```
+uv run --with matplotlib --with jupyter jupyter notebook demo.ipynb
+```
+
 ## Tests
 
 ```
