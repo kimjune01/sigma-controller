@@ -10,6 +10,35 @@ The advertiser sets a margin. The exchange observes conversion rates at differen
 - **PID feedback loop.** If the conversion rate at the boundary is below the target the advertiser's margin can sustain, sigma tightens. If it's above, sigma expands. Integral and derivative terms handle drift and sudden changes.
 - **Initial estimate from data.** `estimate_sigma_from_curve` fits the Gaussian decay curve before the PID loop takes over.
 
+## Simulation results
+
+`uv run --with matplotlib simulate.py` runs convergence and shock scenarios with synthetic Gaussian histograms.
+
+### Convergence
+
+The controller converges to equilibrium from different starting points. Equilibrium is the distance where the conversion rate equals the target (where expanding further is no longer profitable):
+
+| True σ | Target | Start | Equilibrium | Final σ | Error |
+|--------|--------|-------|-------------|---------|-------|
+| 1.50 | 10% | 0.50 | 3.22 | 3.33 | 0.109 |
+| 1.50 | 10% | 4.00 | 3.22 | 3.41 | 0.191 |
+| 1.50 | 20% | 3.00 | 2.69 | 2.77 | 0.075 |
+| 2.00 | 5% | 1.00 | 4.90 | 4.89 | 0.002 |
+
+Both undershooting and overshooting initial guesses converge to the same equilibrium:
+
+![Sigma convergence](convergence.png)
+
+### Competitor entry
+
+When a competitor enters adjacent territory (effective conversion curve narrows by 40%), the derivative term detects the drop and sigma contracts to maintain the target boundary rate:
+
+![Sigma recovery after competitor entry](competitor_entry.png)
+
+### Initial estimate
+
+`estimate_sigma_from_curve` bootstraps a reasonable sigma from a single histogram before the PID loop takes over. From a bad initial guess of 5.0, it estimates 2.19 against a true σ of 1.5 — close enough for the PID to converge quickly.
+
 ## Usage
 
 ```python
