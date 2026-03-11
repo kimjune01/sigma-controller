@@ -99,17 +99,41 @@ def test_convergence():
     true_sigma = 1.5
     # target_rate=0.30 → equilibrium where exp(-d^2/(2*1.5^2)) = 0.30
     # d ≈ 1.5 * sqrt(2 * ln(1/0.30)) ≈ 1.5 * 1.55 ≈ 2.33
-    ctrl = SigmaController(target_rate=0.30, sigma=5.0, kp=0.2, ki=0.01, kd=0.05)
+    # Uses default gains (kp=0.3, ki=0.02, kd=0.08)
+    ctrl = SigmaController(target_rate=0.30, sigma=5.0)
 
     with patch("pid.time") as mock_time:
         t = 0.0
         ctrl._prev_time = t
 
-        for i in range(200):
+        for i in range(300):
             t += 1.0
             mock_time.monotonic.return_value = t
             histogram = make_histogram(sigma_true=true_sigma, n_bins=40, impressions_per_bin=500)
             ctrl.update(histogram)
 
-    # Should have moved substantially toward equilibrium (~2.3) from initial 5.0
-    assert ctrl.sigma < 4.0
+    equilibrium = true_sigma * math.sqrt(-2 * math.log(0.30))
+    # Should converge within 15% of equilibrium
+    assert abs(ctrl.sigma - equilibrium) / equilibrium < 0.15
+
+
+def test_convergence_openauction_regime():
+    """Sigma converges in the OpenAuction operating range (sigma 0.30-0.55)."""
+    # Specialist scenario: tight cluster, sigma=0.40
+    true_sigma = 0.40
+    target_rate = 0.20
+    ctrl = SigmaController(target_rate=target_rate, sigma=1.0)
+
+    with patch("pid.time") as mock_time:
+        t = 0.0
+        ctrl._prev_time = t
+
+        for i in range(300):
+            t += 1.0
+            mock_time.monotonic.return_value = t
+            histogram = make_histogram(sigma_true=true_sigma, n_bins=40, impressions_per_bin=500)
+            ctrl.update(histogram)
+
+    equilibrium = true_sigma * math.sqrt(-2 * math.log(target_rate))
+    # Should converge within 10% of equilibrium
+    assert abs(ctrl.sigma - equilibrium) / equilibrium < 0.10

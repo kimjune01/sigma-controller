@@ -7,8 +7,9 @@ conversions. The controller adjusts sigma to maximize conversions within the
 margin the advertiser can sustain.
 
 PRIVACY: This code only processes aggregated distance histograms (bin counts).
-It never sees individual embeddings, user data, or content. Histograms MUST
-satisfy minimum bin size thresholds (e.g. k >= 11) before being passed in.
+It never sees individual embeddings, user data, or content. User embeddings
+are aggregated into distance bins before reaching this controller. Histograms
+MUST satisfy minimum bin size thresholds (e.g. k >= 11) before being passed in.
 """
 
 import math
